@@ -1,0 +1,315 @@
+---
+title: "HDI与国民生活状况关系的考察"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    extra_dependencies:
+      ctexcap: UTF8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+```{r}
+pacman::p_boot()
+pacman::p_load("readr","stringr","dplyr","tidyr","ggplot2","GGally","corrplot","boot", "gridExtra")
+```
+
+```{r}
+.data.all<-read_csv("/Users/quebec/Playground/others_indexed/MAT_8452_Final_Project-master/MAT_8790_alldata_2018-12-02.csv")
+```
+
+## 问题背景
+个人的发展与国家的发展息息相关. 一个国家的发展状况可以用Social Progress Index来描述. SPI由众多指标决定, 包括营养, 安全, 公共卫生, 教育, 自由, 人权等, 是当下情况和发展预期的综合考虑. 本文想要考察, 国民的幸福感在多大程度上与SPI有关. 同时想要对比非参方法和参数方法, 体会非参方法的意义和优势.
+
+### 数据集与变量意义描述.
+数据集样本量为205, 包括这些变量: country, SPI, HDIrank, HDIindex, HDI\_cat, happiness, gendereq, infantmort, birth\_MF, sixty\_MF,logGDP. 变量意义如下:
+
+- country: 国家.
+- SPI: Social Progress Index, 在0到100间, 意义已描述.
+- HDIindex: Human Development Index, 是人的一生发展的综合考量, 包括出生时的预期寿命, 健康, 在25岁前受学校教育的时长, 入学年纪, 生活水平, 平均收入, 机遇等. 在0到1之间.
+- HDIrank: HDIindex的排名.
+- HDI\_cat: 根据HDI的大小, 把HDI分为4个类别, 从低到高分别是"Low", "Medium", "High", "Very High", 
+- gendereq: 0到1, 包括不同性别经济参与度, 政治参与度, 受教育情况, 健康, 寿命.
+- infantmort: 婴儿死亡率.
+- sixty\_MF: 已经活到60岁的人的预期寿命. 主要与医疗水平和经济水平有关.
+birth\_MF: 婴儿出生时的预期寿命. 相比sixty\_MF, 与安全, 稳定的环境也有明显关系.
+
+## 预处理
+```{r}
+.data.all=.data.all%>%mutate(HDI_cat=factor(HDI_cat,levels = c("Low","Medium","High","Very High")))
+.data.all=.data.all%>%rename(HDI=HDIindex)
+```
+
+含有NA的有94个观测, 总观测数是205个. 去除含有NA的观测.
+```{r, collapse=FALSE}
+nrow(.data.all)
+sum(apply(is.na(.data.all), MARGIN = 1, any))
+```
+```{r}
+.data=na.omit(.data.all)
+```
+
+## EDA
+#### 单个变量的分布情况
+```{r fig.width = 10, fig.height = 8}
+ggpairs(data = .data[,-c(1,3)],  title = "Correlation Matrix")
+```
+
+多数变量明显不满足正态性, SPI, HDIindex, infantmort, birth\_MF明显不具有对称性. sixty\_MF, logGDP则具有多峰的性质. 提示多数分析下, 参数方法的前提假设正态性并不成立, 非参的方法更加适用.
+
+#### 变量之间的线性关系
+```{r}
+.t=cor(.data%>%select(-country, -HDIrank,-HDI_cat))
+corrplot(.t,type="upper",tl.pos="d")
+corrplot(.t,add=TRUE,type="lower",method="number",diag=FALSE,tl.pos="n",cl.pos="n")
+```
+
+SPI与HDIindex具有非常强的线性关系(0.97), 说明两个指标具有很大的相似性. SPI与happiness,infantmort,birth\_MF,sixty\_MF均具有0.8以上或者-0.8以下的相关系数, 但与gendereq和logGDP的线性关系相对较低(0.5到0.6), 提示GDP并不是SPI的主要考虑因素. 除去SPI与HDIindex, 其它变量之间普遍也有明显的线性关系(绝对值0.5以上), 线性关系不明显的是logGDP和gendereq(0.16), 具体是否有关系, 后文会继续考察. happiness与birth\_MF, sixty\_MF具有很强的线性关系(0.8左右). infantmort, sixty\_MF, birth\_MF这三个变量间彼此具有很强的线性关系, 这符合常识, 它们都是医疗水平和营养水平, 公共卫生状况的反应. infantmort与其它所有变量都有不同程度的负相关关系, 最低的是logGDP, 也达到-0.46. 说明婴儿死亡率就已经能体现出一个国家的很多方面.
+#### HDI
+```{r}
+hdi.hist<-ggplot(data = .data, aes(x = HDI)) + geom_histogram()
+hdi.bar <- ggplot(data = .data, aes(x = HDI_cat)) + geom_bar()
+grid.arrange(hdi.hist, hdi.bar)
+```
+
+
+
+```{r}
+summary(.data$HDI)
+sd(.data$HDI)
+```
+
+可以看到HDI分布不对称, HDI\_cat从低到高数量逐渐增多. 中位数大于均值也体现了这一点.
+
+
+#### SPI
+```{r}
+ggplot(data = .data, aes(x = SPI)) + geom_histogram()
+```
+
+```{r}
+summary(.data$SPI)
+sd(.data$SPI)
+```
+
+SPI呈现出双峰的特点, 频数最多的是最高得分. 中位数和均值非常接近.
+
+```{r}
+.data.all%>%top_n(5,HDI)%>%.$country
+.data.all%>%top_n(5,SPI)%>%.$country
+```
+
+SPI最高的5个国家与HDI最高的5个国家, 重合的有Norway, Iceland. SPI最高的5个国家全部是北欧国家.
+
+### GDP
+```{r}
+ggplot(data = .data, aes(x = logGDP)) + geom_histogram()
+```
+
+```{r}
+summary(.data$logGDP)
+sd(.data$logGDP)
+```
+
+logGDP呈现出双峰的特点.
+
+#### happiness
+```{r}
+ggplot(data = .data, aes(x = happiness)) + geom_histogram()
+```
+
+```{r}
+qqnorm(.data$happiness)
+```
+
+happiness大致有对称性和正态性.
+
+#### gendereq
+```{r}
+ggplot(data = .data, aes(x = gendereq)) + geom_histogram()
+```
+
+```{r}
+qqnorm(.data$gendereq)
+```
+
+gendereq也大致具有对称性和正态性.
+
+```{r}
+ggplot(data = .data, aes(x = infantmort)) + geom_histogram()
+```
+
+infantmort明显右偏.
+
+```{r}
+birth.box <- ggplot(data = .data, aes(y = birth_MF)) +
+  geom_boxplot() +
+  ylim(50, 100) +
+  labs(y="Total Life Expectancy (years)",title="...at Birth")
+
+sixty.box <- ggplot(data = .data, aes(y = 60 + sixty_MF)) +
+  geom_boxplot() +
+  ylim(50, 100) +
+  labs(y="",title="...at Age 60")
+grid.arrange(birth.box,sixty.box,nrow=1)
+```
+
+```{r}
+mean(.data$sixty_MF)+60-mean(.data$birth_MF)
+```
+
+
+可以看到, 60岁的期望寿命比出生时的期望寿命高6.7岁, 因为前者已经是条件期望. sixty\_MF具有良好的对称性. birth\_MF则左偏.
+
+## 非参方法与参数方法的对比
+### HDI的区间估计
+```{r}
+shapiro.test(.data$HDI)
+```
+
+正态性检验说明HDI不服从正态分布. 用bootstrapping给出区间估计. 4种区间估计都很接近.
+
+```{r}
+boot_obj=boot(.data,statistic = function(x,index){mean(x[index, ]$HDI)}, R=2000)
+```
+```{r}
+boot.ci(boot_obj,type = "all")
+```
+
+
+
+```{r}
+t.test(.data$HDI,conf.level = 0.95)
+```
+
+t区间为(0.7163408,0.7727629). 尽管不满足正态性, 参数估计给出的t区间估计也是很接近的.
+
+### 性别平等与经济水平毫无关系?
+在corrplot中, 我们看到gendereq与logGDP的相关系数仅为0.16, 那么两者是否不存在关系? 
+```{r eval=FALSE}
+testforDEP::testforDEP(.data$logGDP, .data$gendereq, test = "HOEFFD")
+```
+```{r}
+load("need.RData")
+testforDEP_obj
+```
+
+Hoeffding's Test给出的p值为0.03949605, 表明logGDP与gendereq存在关系, 但不一定是线性关系.
+
+```{r}
+jmuOutlier::perm.cor.test(.data$logGDP, .data$gendereq)
+```
+
+用permutation test, p值为0.09315, 显著性水平为0.05时无法拒绝原假设, 说明两者存在线性关系的证据不足. 综合两个检验可以得出的结论是, logGDP与gendereq明显存在关系, 但不是线性关系.
+
+### Shapiro-Wilk test与Lilliefors test的对比
+
+Shapiro-Wilk test是参数方法, 用于检验正态性应当比Shapiro-Wilk test是参数方法, 用于检验正态性应当比Lilliefors test更有效. 对happiness和gendereq考察两种检验的效果.
+
+```{r}
+shapiro.test(.data$happiness)
+nortest::lillie.test(.data$happiness)
+```
+
+对于happiness, 两种检验都无法拒绝原假设, 说明happiness具有正态性. 但shapiro.test给出的p值要小很多.
+
+```{r}
+shapiro.test(.data$gendereq)
+nortest::lillie.test(.data$gendereq)
+```
+
+但对于gendereq, 与happiness中两种检验的p值对比关系正好相反, 0.05的显著性水平下, lillie.test拒绝原假设, 而shapiro.test无法拒绝原假设. 说明, 参数方数Shapiro-Wilk的p值并不总是小于非参方法lillie.test, 两种检验都需要做.
+
+### infantmort在不同的HDI水平下没有明显差别?
+
+非参方法使用抽样做permutation test, 检验统计量是各组的均值与总的均值的平方和.
+
+```{r eval=FALSE}
+infantmort_mean=mean(.data$infantmort)
+cur_mean_c=c(deframe(.data%>%group_by(HDI_cat)%>%summarise(infantmort_mean=mean(infantmort))))
+cur_stat=sum((cur_mean_c-infantmort_mean)^2)
+set.seed(2021)
+sample_stat=replicate(2000, sum((c(deframe(tibble(infantmort=sample(.data$infantmort),HDI_cat=.data$HDI_cat)%>%group_by(HDI_cat)%>%summarise(infantmort_mean=mean(infantmort))))-infantmort_mean)^2))
+p=sum(sample_stat>cur_stat)/length(sample_stat)
+```
+
+```{r}
+print(0)
+```
+
+在抽样2000次的情况下, p值为0. 即没有出现任何一个样本比当前的统计量更大. 说明应该拒绝原假设, infantmort在HDI不同的国家有很明显的差别.
+
+```{r}
+levene_infantmort <- car::leveneTest(log(infantmort) ~ HDI_cat, data = .data)
+summary(levene_infantmort)
+```
+
+在试图使用参数方法ANOVA之前, 先进行等方差检验, p值为0.4327, 无法拒绝原假设.
+
+```{r}
+nortest::lillie.test(.data$infantmort)
+```
+
+但infantmort的正态性是严重违背的. infantmort不具有正态性.
+
+```{r}
+anova_infantmort_HDI_cat <- aov(as.numeric(HDI_cat) ~ log(infantmort), data = .data)
+summary(anova_infantmort_HDI_cat)
+```
+
+ANOVA同样给出了拒绝原假设的结论, 尽管它的前提条件正态性并不满足.
+
+### happiness与HDI_cat是否有明显区别?
+先以Medium和High对比, 参数方法为两样本的t检验, 先检查等方差性. p值为0.1371, 无法拒绝原假设, 因此t检验的等方差假设可以认为是满足的. 并且由前面的检验可知, happiness的正态性也是满足的.
+
+```{r}
+happiness.med <- .data %>%  dplyr::filter(HDI_cat == "Medium") %>%  select(happiness)
+happiness.high <- .data %>% dplyr::filter(HDI_cat == "High") %>% select(happiness)
+levene_happiness <- car::leveneTest(happiness ~ HDI_cat, data = .data)
+```
+
+```{r}
+summary(levene_happiness)
+```
+
+```{r}
+t.test(happiness.med, happiness.high)
+```
+
+t检验中, p值为0.2489, 无法拒绝原假设.
+
+```{r}
+wilcox.test(happiness.med$happiness, happiness.high$happiness)
+```
+
+Wilcoxon秩和检验的p值为0.2802, 无法拒绝原假设. 即HDI_cat为"Medium"和"High", 幸福感没有显著差异.
+
+```{r}
+happiness.low <- .data %>%  dplyr::filter(HDI_cat == "Low") %>%  select(happiness)
+happiness.veryhigh <- .data %>% dplyr::filter(HDI_cat == "Very High") %>% select(happiness)
+```
+
+```{r}
+wilcox.test(happiness.low$happiness, happiness.veryhigh$happiness)
+```
+
+但对于"Low"与"Very High", Wilcoxon秩和检验的p值为5.8e-15. 说明HDI_cat与happiness有明显关系, 那么多大程度上有关系? 我们进行两两比较, 并且用Bonferroni进行修正.
+
+```{r}
+combn(list( happiness.low$happiness, happiness.med$happiness, happiness.high$happiness , happiness.veryhigh$happiness),2,simplify = FALSE) %>% lapply(FUN=function(x) wilcox.test(x[[1]],x[[2]])$p.value)
+combn(c(1,2,3,4),2)
+```
+
+因此, 一开始比较"Medium"与"High"的结果具有欺骗性. 仅有这两组没有显著差异, 其它所有组两两检验的p值都非常小, 远小于Bonferroni修正后的结果. 
+
+对"Medium"与"High"求均值, 发现两者的均值差距本来就不大, 与其它各组之间的差距小得多. 这部分解释了为什么仅"Medium"与"High"两组没有明显差异.
+
+```{r}
+with(.data,tapply(happiness,HDI_cat,mean))
+```
+
+这说明HDI\_cat很大程度上决定了国民幸福感和婴儿死亡率.
+
+## 总结
+本数据集的特点有2个, 样本量不大并且绝大多数变量没有正态性. 因此用非参方法更合适. 不过t检验, t区间估计, ANOVA等, 在样本量比较大的情况下(本数据集去除含有NA的观测后样本量为111), 也得出了与非参方法很接近的结论, 这说明在样本量大的情况下, 即使部分条件不成立, 参数方法的结果也还是可靠的.
